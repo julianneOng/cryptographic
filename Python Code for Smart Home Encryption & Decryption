@@ -1,0 +1,83 @@
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+import os
+import base64
+
+# Function to derive a key from a passphrase
+def derive_key(passphrase: str, salt: bytes) -> bytes:
+    """Derives a cryptographic key from the passphrase using PBKDF2."""
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,  # 256-bit key for AES-256 encryption
+        salt=salt,
+        iterations=100000,
+        backend=default_backend()
+    )
+    return kdf.derive(passphrase.encode())
+
+# Encrypt data (e.g., smart home password or message)
+def encrypt_data(data: str, passphrase: str) -> str:
+    """Encrypts sensitive data (e.g., passwords) using AES (CBC mode)."""
+    salt = os.urandom(16)  # Generate random salt
+    iv = os.urandom(16)    # Generate random Initialization Vector (IV)
+    
+    # Derive AES key from passphrase and salt
+    key = derive_key(passphrase, salt)
+    
+    # Setup AES encryption with CBC mode
+    cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
+    encryptor = cipher.encryptor()
+
+    # Pad data to make it a multiple of AES block size (16 bytes)
+    padding_length = 16 - (len(data) % 16)
+    padded_data = data + chr(padding_length) * padding_length
+
+    # Encrypt the padded data
+    encrypted_data = encryptor.update(padded_data.encode()) + encryptor.finalize()
+
+    # Combine salt, IV, and encrypted data, then encode it in base64
+    encrypted_message = salt + iv + encrypted_data
+    return base64.b64encode(encrypted_message).decode()
+
+# Decrypt data (e.g., smart home password or message)
+def decrypt_data(encrypted_data: str, passphrase: str) -> str:
+    """Decrypts AES-encrypted data (e.g., passwords) using the passphrase."""
+    # Decode the base64-encoded encrypted message
+    encrypted_data_bytes = base64.b64decode(encrypted_data)
+
+    # Extract salt and IV from the encrypted data
+    salt = encrypted_data_bytes[:16]
+    iv = encrypted_data_bytes[16:32]
+    encrypted_message = encrypted_data_bytes[32:]
+
+    # Derive the AES key using the passphrase and the salt
+    key = derive_key(passphrase, salt)
+
+    # Setup AES decryption with CBC mode
+    cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
+    decryptor = cipher.decryptor()
+
+    # Decrypt the data
+    decrypted_data = decryptor.update(encrypted_message) + decryptor.finalize()
+
+    # Remove padding to retrieve the original data
+    padding_length = decrypted_data[-1]
+    return decrypted_data[:-padding_length].decode()
+
+# Example usage
+if __name__ == "__main__":
+    # Example passphrase and data (can be a password or a control command)
+    passphrase = "SuperSecurePassphrase123!"  # Make sure this is kept safe
+    sensitive_data = "SmartHomeDevicePassword456!"  # Example password
+
+    print("Original Data:", sensitive_data)
+
+    # Encrypt the data
+    encrypted = encrypt_data(sensitive_data, passphrase)
+    print("Encrypted Data:", encrypted)
+
+    # Decrypt the data
+    decrypted = decrypt_data(encrypted, passphrase)
+    print("Decrypted Data:", decrypted)
